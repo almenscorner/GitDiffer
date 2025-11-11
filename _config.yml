@@ -1,8 +1,8 @@
 title: GitDiffer
 description: A tool to visualize differences between Git commits.
 # If deploying under a subpath (e.g., /intune-uploader), set baseurl: 
-baseurl: "/diffboard"
-url: ""
+baseurl: "/GitDiffer"
+url: "https://almenscorner.github.io"
 
 # Build settings
 markdown: kramdown
