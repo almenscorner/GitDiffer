@@ -16,4 +16,7 @@ exclude:
   - LICENSE
   - .gitignore
   - .DS_Store
+
+include:
+  - assets
 # Jekyll writes to _site by default; it's fine if it exists, but it's typically ignored in VCS
