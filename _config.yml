@@ -1,0 +1,19 @@
+title: GitDiffer
+description: A tool to visualize differences between Git commits.
+# If deploying under a subpath (e.g., /intune-uploader), set baseurl: 
+baseurl: "/diffboard"
+url: ""
+
+# Build settings
+markdown: kramdown
+plugins: []
+# Avoid processing generated or non-source folders
+exclude:
+  - node_modules
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - LICENSE
+  - .gitignore
+  - .DS_Store
+# Jekyll writes to _site by default; it's fine if it exists, but it's typically ignored in VCS

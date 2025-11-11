@@ -1,0 +1,34 @@
+<section
+    class="bg-slate-100 border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-3 items-end dark:bg-gray-900 dark:border-gray-800">
+    <div class="grow">
+    <label class="block text-xs font-medium text-slate-600 dark:text-gray-400 mb-2">Search</label>
+        <input id="q" type="search" placeholder="File or property…"
+            class="w-full rounded-xl border border-slate-300 bg-white text-slate-900 px-3 py-2 outline-none focus:ring-2 focus:ring-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100" />
+    </div>
+    <div>
+    <label class="block text-xs font-medium text-slate-600 dark:text-gray-400 mb-2">Change type</label>
+        <select id="typeFilter"
+            class="rounded-xl border border-slate-300 bg-white text-slate-900 px-3 py-2 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100">
+            <option value="">All</option>
+            <option>replace</option>
+            <option>insert</option>
+            <option>delete</option>
+            <option>file-deleted</option>
+        </select>
+    </div>
+    <div>
+    <label class="block text-xs font-medium text-slate-600 dark:text-gray-400 mb-2">Context</label>
+        <select id="ctxFilter"
+            class="rounded-xl border border-slate-300 bg-white text-slate-900 px-3 py-2 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100">
+            <option value="">All</option>
+            <option>kv</option>
+            <option>plist-kv</option>
+            <option>block</option>
+            <option>summary</option>
+        </select>
+    </div>
+    <div class="flex gap-2">
+        <button id="clearFilters"
+            class="px-3 py-2 rounded-xl bg-slate-200 border border-slate-300 text-sm hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:hover:bg-gray-700">Clear</button>
+    </div>
+</section>

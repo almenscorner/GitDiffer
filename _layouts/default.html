@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ page.title }}</title>
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="icon" type="image/svg+xml" href="{{ '/assets/icons/favicon.svg' | relative_url }}">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Initial theme: respect stored preference or system, set before Tailwind to avoid FOUC -->
+    <script src="{{ '/assets/js/theme-init.js' | relative_url }}"></script>
+    <!-- Precompiled Tailwind CSS (replaces CDN + tw-config) -->
+    <link rel="stylesheet" href="{{ '/assets/css/tailwind-built.css' | relative_url }}?v={{ site.time | date: '%s' }}">
+    <!-- Your custom styles (optional overrides) -->
+    <link rel="stylesheet" href="{{ '/assets/css/diffboard.css' | relative_url }}?v={{ site.time | date: '%s' }}">
+</head>
+
+<body class="bg-slate-50 text-slate-900 dark:bg-gray-950 dark:text-slate-100 font-sans">
+    <!-- Full-width glass header -->
+    {% include header.html %}
+    <div class="max-w-7xl mx-auto p-6 space-y-6">
+        {{ content }}
+    </div>
+
+    <!-- Drag & Drop Overlay -->
+    <div id="dropZone" aria-hidden="true"></div>
+
+    <!-- Paste dialog -->
+    {% include pastedialog.html %}
+
+    <script src="{{ '/assets/js/diffboard.js' | relative_url }}?v={{ site.time | date: '%s' }}"></script>
+</body>
+
+</html>

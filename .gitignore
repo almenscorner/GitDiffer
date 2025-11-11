@@ -1,0 +1,36 @@
+# Jekyll build output
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata
+
+# Node and Tailwind artifacts
+node_modules/
+package-lock.json
+npm-debug.log*
+.pnp.cjs
+.pnp.loader.mjs
+
+# Tailwind build artifacts (keep built CSS committed only if you want static hosting without CI)
+# If you build in CI, ignore the built CSS
+# assets/css/tailwind-built.css
+
+# macOS junk
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor/IDE
+.vscode/
+*.code-workspace
+.idea/
+
+# Ruby/Bundler
+.bundle/
+vendor/
+
+# Logs
+*.log
+
+# Cache from tools
+.cache/

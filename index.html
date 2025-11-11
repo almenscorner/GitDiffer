@@ -1,0 +1,26 @@
+---
+layout: default
+title: Git Diff Dashboard
+---
+
+
+  <!-- Hero section -->
+  {% include hero.html %}
+
+  <!-- Summary Cards -->
+  <section id="summary" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></section>
+
+  <!-- Filters -->
+  {% include filters.html %}
+
+  <!-- Pagination controls -->
+  {% include pagination.html %}
+
+  <!-- Grouped by file -->
+  <section id="files" class="space-y-4"></section>
+
+  <!-- Pagination controls (bottom minimal) -->
+  {% include pagination_bottom.html %}
+
+  <!-- Legend -->
+  {% include footer.html %}

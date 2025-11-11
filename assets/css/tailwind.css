@@ -1,0 +1,6 @@
+/* Tailwind layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Place custom overrides below or keep them in diffboard.css */
