@@ -2,7 +2,7 @@
 Visualize Git diffs as clean, structured insights. Search, filter, and explore changes with clarity.
 
 ## Use gitdiffer
-Download the gitdiffer script and run it:
+Download the [gitdiffer script](https://github.com/almenscorner/GitDiffer/blob/main/gitdiffer.py) and run it:
 ```bash
 python3 gitdiffer.py --repo_path /path/to/repo --output_json output.json
 ```
