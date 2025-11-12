@@ -221,7 +221,7 @@ function updatePage(){
 }
 
 /* ----------------- Import / Paste / Sample ----------------- */
-document.getElementById('fileInput').addEventListener('change', (e)=>{
+onEach(['fileInput','fileInputMobile'], 'change', (e)=>{
   const file = e.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
@@ -237,9 +237,8 @@ document.getElementById('fileInput').addEventListener('change', (e)=>{
   };
   reader.readAsText(file);
 });
-
 const dlg = document.getElementById('pasteDialog');
-document.getElementById('pasteJsonBtn').addEventListener('click', ()=> dlg.showModal());
+onEach(['pasteJsonBtn','pasteJsonBtnMobile'], 'click', ()=> dlg.showModal());
 document.getElementById('pasteApply').addEventListener('click', (ev)=>{
   ev.preventDefault();
   try{
@@ -254,7 +253,14 @@ document.getElementById('pasteApply').addEventListener('click', (ev)=>{
   }
 });
 
-document.getElementById('loadSample').addEventListener('click', ()=>{
+function onEach(ids, type, handler){
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(type, handler);
+  });
+}
+
+onEach(['loadSample','loadSampleMobile'], 'click', ()=>{
   DATA = [
     {"file":"Scripts/Powershell/Script Data/intunecd_appreg.ps1","property":null,"line_old":14,"line_new":14,"context":"block","old_lines":["$appName = \"IntuneCD-Monitor\""],"new_lines":["$appName = \"IntuneCD\""],"change_type":"replace"},
     {"file":"Settings Catalog/Baseline - W365_mdm.json","property":"value","old":"\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_1\"","new":"\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_0\"","line_old":28,"line_new":28,"context":"kv","change_type":"replace"},
@@ -266,12 +272,15 @@ document.getElementById('loadSample').addEventListener('click', ()=>{
 /* ----------------- Boot ----------------- */
 groupFilterInputs();
 // Theme toggle
-const themeBtn = document.getElementById('themeToggle');
-const setThemeButtonIcon = () => {
+const themeBtnIds = ['themeToggle','themeToggleMobile'];
+function setThemeButtonIcon(){
   const isDark = document.documentElement.classList.contains('dark');
-  themeBtn.textContent = isDark ? '☀️' : '🌙';
-};
-themeBtn.addEventListener('click', () => {
+  themeBtnIds.forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.textContent = isDark ? '☀️' : '🌙';
+  });
+}
+onEach(themeBtnIds, 'click', () => {
   const root = document.documentElement;
   const isDark = root.classList.toggle('dark');
   try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch {}
@@ -284,10 +293,10 @@ DATA = [];
 applyFilters();
 
 // Expand / Collapse all
-document.getElementById('expandAll').addEventListener('click', () => {
+onEach(['expandAll','expandAllMobile'], 'click', () => {
   document.querySelectorAll('#files details').forEach(d => d.open = true);
 });
-document.getElementById('collapseAll').addEventListener('click', () => {
+onEach(['collapseAll','collapseAllMobile'], 'click', () => {
   document.querySelectorAll('#files details').forEach(d => d.open = false);
 });
 
