@@ -1,29 +1,57 @@
 <header
-    class="sticky top-0 z-30 w-full backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-gray-950/60 bg-white/70 dark:bg-gray-950/70 bg-gradient-to-b from-white/60 to-white/30 dark:from-gray-950/60 dark:to-gray-950/30 border-b border-slate-200/80 dark:border-gray-800/80 shadow-[0_10px_20px_-15px_rgba(2,6,23,0.35)] dark:shadow-[0_10px_20px_-15px_rgba(0,0,0,0.7)]">
-    <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight">GitDiffer</h1>
-        </div>
-        <div class="flex gap-2 items-center">
+    class="sticky top-0 z-30 w-full backdrop-blur bg-white/70 dark:bg-gray-950/70 border-b border-slate-200/80 dark:border-gray-800/80 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+        <h1 class="text-xl sm:text-2xl font-bold tracking-tight">GitDiffer</h1>
+
+        <!-- Desktop actions -->
+        <div class="hidden md:flex items-center gap-3">
             <label
-                class="px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 cursor-pointer hover:bg-slate-300 hover:border-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700 dark:hover:border-gray-600">
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 cursor-pointer hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700">
                 <input id="fileInput" type="file" accept="application/json" class="hidden" />
                 Import JSON
             </label>
             <div
                 class="inline-flex rounded-xl overflow-hidden border border-slate-300 dark:border-gray-700 bg-white/60 dark:bg-gray-900/60">
                 <button id="loadSample"
-                    class="px-3 py-2 text-sm font-medium bg-transparent text-slate-900 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-500 rounded-none first:rounded-l-xl last:rounded-r-xl dark:text-gray-100 dark:hover:bg-gray-700">Load
-                    sample</button>
+                    class="px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-gray-700">Load</button>
                 <button id="pasteJsonBtn"
-                    class="px-3 py-2 text-sm font-medium bg-transparent text-slate-900 border-l border-slate-300 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-500 rounded-none first:rounded-l-xl last:rounded-r-xl dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700">Paste</button>
+                    class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-gray-700 hover:bg-slate-100 dark:hover:bg-gray-700">Paste</button>
                 <button id="expandAll"
-                    class="px-3 py-2 text-sm font-medium bg-transparent text-slate-900 border-l border-slate-300 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-500 rounded-none first:rounded-l-xl last:rounded-r-xl dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700">Expand</button>
+                    class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-gray-700 hover:bg-slate-100 dark:hover:bg-gray-700">Expand</button>
                 <button id="collapseAll"
-                    class="px-3 py-2 text-sm font-medium bg-transparent text-slate-900 border-l border-slate-300 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-500 rounded-none first:rounded-l-xl last:rounded-r-xl dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700">Collapse</button>
+                    class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-gray-700 hover:bg-slate-100 dark:hover:bg-gray-700">Collapse</button>
             </div>
             <button id="themeToggle" title="Toggle dark mode"
-                class="ml-2 px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 hover:bg-slate-300 hover:border-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700 dark:hover:border-gray-600 transition-transform">🌙</button>
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700 transition">🌙</button>
+        </div>
+
+        <!-- Mobile buttons -->
+        <div class="flex md:hidden items-center gap-2">
+            <button id="themeToggleMobile" title="Toggle dark mode"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700">🌙</button>
+            <button id="navToggle"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700"
+                aria-expanded="false" aria-controls="mobileNav">☰</button>
         </div>
     </div>
+
+    <!-- Mobile nav panel -->
+    <nav id="mobileNav" class="md:hidden max-w-7xl mx-auto px-4 sm:px-6 pb-3 space-y-2 hidden"
+        aria-label="Mobile navigation">
+        <label
+            class="block px-3 py-2 rounded-xl text-center text-sm font-medium bg-slate-200 border border-slate-300 text-slate-900 cursor-pointer hover:bg-slate-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700">
+            <input id="fileInputMobile" type="file" accept="application/json" class="hidden" />
+            Import JSON
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+            <button id="loadSampleMobile"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-white border border-slate-300 hover:bg-slate-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">Load</button>
+            <button id="pasteJsonBtnMobile"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-white border border-slate-300 hover:bg-slate-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">Paste</button>
+            <button id="expandAllMobile"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-white border border-slate-300 hover:bg-slate-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">Expand</button>
+            <button id="collapseAllMobile"
+                class="px-3 py-2 rounded-xl text-sm font-medium bg-white border border-slate-300 hover:bg-slate-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">Collapse</button>
+        </div>
+    </nav>
 </header>

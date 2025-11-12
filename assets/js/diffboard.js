@@ -486,3 +486,13 @@ function hideLoading(){
   window.addEventListener('resize', () => { dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1)); resize(); makeParticles(); });
   if (running) requestAnimationFrame(step);
 })();
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('navToggle');
+  const panel = document.getElementById('mobileNav');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', () => {
+    const open = panel.classList.toggle('hidden') === false;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+});
