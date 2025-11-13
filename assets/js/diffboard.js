@@ -24,6 +24,26 @@ const icon = (name, cls='w-6 h-6') => {
 const escapeHtml = (s) => (s ?? '').toString().replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 const groupBy = (arr, key) => arr.reduce((m, x) => ((m[x[key]] ||= []).push(x), m), {});
 
+// Commit info renderer
+function renderCommitInfo(ch){
+  const hasAny = ch.commit_hash || ch.commit_author || ch.commit_date || ch.commit_message;
+  if (!hasAny) return '';
+  const shortHash = ch.commit_hash ? String(ch.commit_hash).slice(0,7) : null;
+  const author = ch.commit_author ? escapeHtml(ch.commit_author) : null;
+  const date = ch.commit_date ? escapeHtml(ch.commit_date) : null;
+  const message = ch.commit_message ? escapeHtml(ch.commit_message) : null;
+  const pills = [
+    author ? `<span class="px-2 py-0.5 rounded-full border bg-slate-50 text-slate-700 border-slate-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700">${author}</span>` : '',
+    date ? `<span class="px-2 py-0.5 rounded-full border bg-slate-50 text-slate-700 border-slate-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700">${date}</span>` : '',
+    shortHash ? `<span class="px-2 py-0.5 rounded-full border bg-slate-50 text-slate-700 border-slate-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700">${shortHash}</span>` : ''
+  ].filter(Boolean).join(' ');
+  return `
+  <div class="mt-3 pt-2 border-t text-xs text-slate-600 border-slate-200 dark:text-gray-400 dark:border-gray-800">
+    ${message ? `<div class="truncate mt-3" title="${message}">Message: ${message}</div>` : ''}
+    <div class="mt-1 flex flex-wrap gap-2">${pills}</div>
+  </div>`;
+}
+
 /* ----------------- Rendering ----------------- */
 function renderSummary(changes){
   const total = changes.length;
@@ -78,6 +98,7 @@ function renderChangeItem(ch, idx){
           <div class="rounded-lg border p-2 overflow-auto border-rose-300 bg-rose-50/50 text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300"><div class="text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-1">Baseline</div>${escapeHtml(ch.old)}</div>
           <div class="rounded-lg border p-2 overflow-auto border-emerald-300 bg-emerald-50/50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"><div class="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 mb-1">New</div>${escapeHtml(ch.new)}</div>
         </div>
+        ${renderCommitInfo(ch)}
   <div class="mt-3 flex justify-end"><button data-copy-change="${idx}" class="px-2 py-1 text-[11px] rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700">Copy</button></div>
       </div>`;
   }
@@ -105,6 +126,7 @@ function renderChangeItem(ch, idx){
         <div class="rounded-lg border p-2 overflow-auto text-xs border-rose-200 bg-rose-50/50 text-rose-800 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-200"><div class="text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-1">Baseline</div><pre class="diff"><code>${oldBlock || '—'}</code></pre></div>
         <div class="rounded-lg border p-2 overflow-auto text-xs border-emerald-200 bg-emerald-50/50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200"><div class="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 mb-1">New</div><pre class="diff"><code>${newBlock || '—'}</code></pre></div>
       </div>
+  ${renderCommitInfo(ch)}
   <div class="mt-3 flex justify-end"><button data-copy-change="${idx}" class="px-2 py-1 text-[11px] rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700">Copy</button></div>
     </div>`;
 }
@@ -261,10 +283,128 @@ function onEach(ids, type, handler){
 }
 
 onEach(['loadSample','loadSampleMobile'], 'click', ()=>{
+  // Expanded sample demonstrating multiple contexts, change types, and commit metadata.
   DATA = [
-    {"file":"Scripts/Powershell/Script Data/intunecd_appreg.ps1","property":null,"line_old":14,"line_new":14,"context":"block","old_lines":["$appName = \"IntuneCD-Monitor\""],"new_lines":["$appName = \"IntuneCD\""],"change_type":"replace"},
-    {"file":"Settings Catalog/Baseline - W365_mdm.json","property":"value","old":"\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_1\"","new":"\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_0\"","line_old":28,"line_new":28,"context":"kv","change_type":"replace"},
-    {"file":"Assignment Report/report.json","property":null,"line_old":1,"line_new":null,"context":"block","old_lines":[],"new_lines":[],"change_type":"file-deleted"}
+    // Replacement in a script (block context with multi-line change)
+    {
+      file: "Scripts/Powershell/Script Data/intunecd_appreg.ps1",
+      property: null,
+      line_old: 12,
+      line_new: 12,
+      context: "block",
+      old_lines: ["$tenantName = \"IntuneCD-Monitor\"","$appName = \"IntuneCD-Monitor\""],
+      new_lines: ["$tenantName = \"IntuneCD\"","$appName = \"IntuneCD\""],
+      change_type: "replace",
+      commit_hash: "3206aa6d9e7c2fdabc12345cafefeed12345678",
+      commit_author: "Matthew Smith",
+      commit_date: "2025-11-12",
+      commit_message: "fix: streamline tenant and app names"
+    },
+    // Simple KV replacement
+    {
+      file: "Settings Catalog/Baseline - W365_mdm.json",
+      property: "value",
+      old: "\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_1\"",
+      new: "\"device_vendor_msft_policy_config_devicelock_preventenablinglockscreencamera_0\"",
+      line_old: 28,
+      line_new: 28,
+      context: "kv",
+      change_type: "replace",
+      commit_hash: "a91bcde33445566778899aabbccddeeff001122",
+      commit_author: "Graham Lee",
+      commit_date: "2025-11-11",
+      commit_message: "feat: relax camera lock screen setting"
+    },
+    // Insertion of new JSON key (kv insertion)
+    {
+      file: "Settings Catalog/Baseline - W365_mdm.json",
+      property: "new_key",
+      old: null,
+      new: "\"allow_custom_branding\"",
+      line_old: null,
+      line_new: 45,
+      context: "kv",
+      change_type: "insert",
+      commit_hash: "a91bcde33445566778899aabbccddeeff001122",
+      commit_author: "Graham Lee",
+      commit_date: "2025-11-11",
+      commit_message: "feat: add custom branding toggle"
+    },
+    // Deletion of a deprecated plist key (plist-kv delete)
+    {
+      file: "Config/Legacy/App.plist",
+      property: "CFBundleIconFile",
+      old: "IconOld.icns",
+      new: null,
+      line_old: 102,
+      line_new: null,
+      context: "plist-kv",
+      change_type: "delete",
+      commit_hash: "bb12cc34dd56ee78ff9900112233445566778899",
+      commit_author: "Elliot Turner",
+      commit_date: "2025-11-10",
+      commit_message: "chore: remove deprecated plist icon key"
+    },
+    // Pure insertion block (new function)
+    {
+      file: "src/lib/icon_extractor.py",
+      property: null,
+      line_old: null,
+      line_new: 1,
+      context: "block",
+      old_lines: [],
+      new_lines: ["def extract_icons(path):","    # TODO: implement high-res icon extraction","    return []"],
+      change_type: "insert",
+      commit_hash: "3206aa6d9e7c2fdabc12345cafefeed12345678",
+      commit_author: "Matthew Smith",
+      commit_date: "2025-11-12",
+      commit_message: "feat: scaffold icon extractor"
+    },
+    // Multi-line deletion (removing unused code)
+    {
+      file: "src/cleanup/obsolete.py",
+      property: null,
+      line_old: 30,
+      line_new: null,
+      context: "block",
+      old_lines: ["def legacy_cleanup():","    print('Running old cleanup')","    # heavy legacy logic"],
+      new_lines: [],
+      change_type: "delete",
+      commit_hash: "5e7d9c1b234567890abcdef1234567890abcdeff",
+      commit_author: "Dana Curie",
+      commit_date: "2025-11-09",
+      commit_message: "refactor: drop legacy cleanup function"
+    },
+    // File deletion (file-deleted)
+    {
+      file: "Assignment Report/report.json",
+      property: null,
+      line_old: 1,
+      line_new: null,
+      context: "block",
+      old_lines: [],
+      new_lines: [],
+      change_type: "file-deleted",
+      commit_hash: "5e7d9c1b234567890abcdef1234567890abcdeff",
+      commit_author: "Dana Curie",
+      commit_date: "2025-11-09",
+      commit_message: "refactor: remove obsolete assignment report"
+    },
+    // Replacement showing subtle diff in multiline JSON block
+    {
+      file: "profiles/security_profile.json",
+      property: null,
+      line_old: 75,
+      line_new: 75,
+      context: "block",
+      old_lines: ["{","  \"enforce_firewall\": true,","  \"allow_remote\": true","}"],
+      new_lines: ["{","  \"enforce_firewall\": true,","  \"allow_remote\": false","}"],
+      change_type: "replace",
+      commit_hash: "ee11aa22bb33cc44dd55ee66ff77001122334455",
+      commit_author: "Alex Kim",
+      commit_date: "2025-11-08",
+      commit_message: "security: disable remote access by default"
+    }
   ];
   applyFilters();
 });

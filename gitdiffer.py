@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/env python3
 
 import re
 from dataclasses import dataclass, asdict, field
@@ -8,31 +8,36 @@ import subprocess
 import json
 import os
 import html
+import sys
 from enum import Enum
 from argparse import ArgumentParser
 
 parser = ArgumentParser(description="Parse git unified diffs into structured changes.")
-parser.add_argument("--repo_path", help="Path to the git repository")
+parser.add_argument("--repo-path", help="Path to the git repository")
 parser.add_argument("--compare-file-1", help="First file to compare")
 parser.add_argument("--compare-file-2", help="Second file to compare")
 parser.add_argument(
     "--unified", type=int, default=0, help="Number of unified diff context lines"
 )
 parser.add_argument(
-    "--output_json", nargs="?", default=None, help="Optional output JSON file path"
+    "--output-json", nargs="?", default=None, help="Optional output JSON file path"
 )
 parser.add_argument(
     "--suppress-deleted-files",
     action="store_true",
     help="Suppress fully deleted files in output",
 )
+parser.add_argument(
+    "--diff-file",
+    help="Path to file containing raw unified diff text (or '-' to read from stdin)",
+)
 
 args = parser.parse_args()
 
-DIFF_GIT = re.compile(r"^diff --git a/(.+?) b/(.+?)\s*$")
-OLD_FILE_HDR = re.compile(r"^---\s+(?:a/|/dev/null)(.+?)\s*$")
-NEW_FILE_HDR = re.compile(r"^\+\+\+\s+(?:b/|/dev/null)(.+?)\s*$")
-HUNK_HEADER = re.compile(r"^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@")
+DIFF_GIT = re.compile(r"^\s*diff --git a/(.+?) b/(.+?)\s*$")
+OLD_FILE_HDR = re.compile(r"^\s*---\s+(?:a/|/dev/null)(.+?)\s*$")
+NEW_FILE_HDR = re.compile(r"^\s*\+\+\+\s+(?:b/|/dev/null)(.+?)\s*$")
+HUNK_HEADER = re.compile(r"^\s*@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@")
 
 DOCKER_INSTR = re.compile(r"^\s*([A-Z]+)\b(.*)$")
 KV_PATTERNS = [re.compile(r'^\s*"?([A-Za-z0-9_.-]+)"?\s*[:=]\s*(.+?)\s*$')]
@@ -41,8 +46,8 @@ JSON_PAIR = re.compile(r'^\s*"([A-Za-z0-9_.-]+)"\s*:\s*(.+?)(,?\s*)$')
 PLIST_KEY_RE = re.compile(r"<\s*key\s*>\s*([^<]+?)\s*<\s*/\s*key\s*>")
 PLIST_STRING_RE = re.compile(r"<\s*string\s*>\s*(.*?)\s*<\s*/\s*string\s*>")
 
-OLD_FILE_HDR = re.compile(r"^---\s+(?:a/)?([^\t]+)")
-NEW_FILE_HDR = re.compile(r"^\+\+\+\s+(?:b/)?([^\t]+)")
+OLD_FILE_HDR = re.compile(r"^\s*---\s+(?:a/)?([^\t]+)")
+NEW_FILE_HDR = re.compile(r"^\s*\+\+\+\s+(?:b/)?([^\t]+)")
 
 _METADATA_PREFIXES = (
     "index ",
@@ -114,6 +119,11 @@ class Change:
     old_lines: List[str] = field(default_factory=list)
     new_lines: List[str] = field(default_factory=list)
     change_type: str = ChangeType.UNKNOWN.value
+    # commit context (optional if available)
+    commit_hash: Optional[str] = None
+    commit_author: Optional[str] = None
+    commit_date: Optional[str] = None
+    commit_message: Optional[str] = None
 
     def to_dict(self, expand_tabs: bool = True, tabsize: int = 4) -> Dict[str, Any]:
         d = asdict(self)
@@ -137,9 +147,9 @@ class Change:
 
 
 def to_pretty_json(changes, expand_tabs=True, tabsize=4):
-    return json.dumps(
-        [c.to_dict(expand_tabs, tabsize) for c in changes], indent=2, ensure_ascii=False
-    )
+    """Serialize changes; commit metadata only lives on each change object."""
+    change_list = [c.to_dict(expand_tabs, tabsize) for c in changes]
+    return json.dumps(change_list, indent=2, ensure_ascii=False)
 
 
 def filter_or_summarize_deletes(
@@ -213,6 +223,7 @@ def _make_change(
     new_lines: List[str],
     line_old: Optional[int],
     line_new: Optional[int],
+    commit_ctx: Optional[Dict[str, Optional[str]]] = None,
 ) -> Change:
     if old_lines and new_lines:
         ctype = ChangeType.REPLACE.value
@@ -222,6 +233,7 @@ def _make_change(
         ctype = ChangeType.INSERT.value
     else:
         ctype = ChangeType.UNKNOWN.value
+    commit_ctx = commit_ctx or {}
     return Change(
         file=(file or "").strip(),
         property=None,
@@ -233,10 +245,14 @@ def _make_change(
         old_lines=old_lines[:],
         new_lines=new_lines[:],
         change_type=ctype,
+        commit_hash=commit_ctx.get("hash"),
+        commit_author=commit_ctx.get("author"),
+        commit_date=commit_ctx.get("date"),
+        commit_message=commit_ctx.get("message"),
     )
 
 
-class DiffParser:
+class DiffWithCommitParser:
     def __init__(self, diff_text: str):
         self.lines = diff_text.splitlines()
         self.changes: List[Change] = []
@@ -247,10 +263,75 @@ class DiffParser:
         self.block_added: List[str] = []
         self.block_old_start: Optional[int] = None
         self.block_new_start: Optional[int] = None
+        self.current_commit: Dict[str, Optional[str]] = {}
+        # Only capture commit hash/author/date; message handled later via git or ignored.
+        # Enhanced attribution: support diff blocks that appear BEFORE their commit header.
+        # We buffer such changes in pending_changes and assign them when the commit header arrives.
+        # If a commit header appears with no pending changes, we switch to forward assignment mode
+        # (standard git log -p ordering) and attribute subsequent hunks immediately.
+        self.pending_changes: List[Change] = []
+        self.forward_assignment: bool = False
 
     def parse(self) -> List[Change]:
         for raw in self.lines:
             line = raw.rstrip("\n")
+            m_commit = _COMMIT_LINE.match(line)
+            if m_commit:
+                self._flush_block()
+                commit_obj = {
+                    "hash": m_commit.group(1),
+                    "author": None,
+                    "date": None,
+                    "message": None,
+                }
+                if self.pending_changes:
+                    # Assign buffered (previous) diff hunks to this commit (commit-after-diff ordering)
+                    for ch in self.pending_changes:
+                        ch.commit_hash = commit_obj["hash"]
+                    self.pending_changes.clear()
+                    # This commit header acted as a closing header; do not enable forward assignment yet.
+                    self.forward_assignment = False
+                    self.current_commit = commit_obj
+                else:
+                    # Standard ordering: commit header precedes its hunks.
+                    self.forward_assignment = True
+                    self.current_commit = commit_obj
+                continue
+            if self.current_commit:
+                m_author = _AUTHOR_LINE.match(line)
+                if m_author:
+                    self.current_commit["author"] = m_author.group(1).strip()
+                    # Update author for already-emitted changes of this commit lacking author
+                    for ch in self.changes:
+                        if (
+                            ch.commit_hash == self.current_commit.get("hash")
+                            and not ch.commit_author
+                        ):
+                            ch.commit_author = self.current_commit["author"]
+                    for ch in self.pending_changes:
+                        if (
+                            ch.commit_hash == self.current_commit.get("hash")
+                            and not ch.commit_author
+                        ):
+                            ch.commit_author = self.current_commit["author"]
+                    continue
+                m_date = _DATE_LINE.match(line)
+                if m_date:
+                    self.current_commit["date"] = m_date.group(1).strip()
+                    for ch in self.changes:
+                        if (
+                            ch.commit_hash == self.current_commit.get("hash")
+                            and not ch.commit_date
+                        ):
+                            ch.commit_date = self.current_commit["date"]
+                    for ch in self.pending_changes:
+                        if (
+                            ch.commit_hash == self.current_commit.get("hash")
+                            and not ch.commit_date
+                        ):
+                            ch.commit_date = self.current_commit["date"]
+                    continue
+
             if self._try_start_file(line):
                 continue
             if self._is_metadata(line):
@@ -271,7 +352,6 @@ class DiffParser:
             return True
         m_old = OLD_FILE_HDR.match(line)
         if m_old:
-            # reset hunk context; keep old path if +++ not yet seen
             self._reset_hunk()
             if not self.cur_file:
                 self.cur_file = m_old.group(1).strip()
@@ -284,7 +364,7 @@ class DiffParser:
         return False
 
     def _is_metadata(self, line: str) -> bool:
-        return any(line.startswith(p) for p in _METADATA_PREFIXES)
+        return any(line.lstrip().startswith(p) for p in _METADATA_PREFIXES)
 
     def _try_hunk(self, line: str) -> bool:
         m_hunk = HUNK_HEADER.match(line)
@@ -303,22 +383,20 @@ class DiffParser:
         )
 
     def _consume_line(self, line: str):
-        if line.startswith("-"):
-            body = line[1:]
+        s = line.lstrip()
+        if s.startswith("-"):
             if not self.block_removed and not self.block_added:
                 self.block_old_start = self.old_line
-            self.block_removed.append(body)
+            self.block_removed.append(s[1:])
             self.old_line += 1
-        elif line.startswith("+"):
-            body = line[1:]
+        elif s.startswith("+"):
             if not self.block_removed and not self.block_added:
                 self.block_new_start = self.new_line
             if self.block_removed and self.block_new_start is None:
                 self.block_new_start = self.new_line
-            self.block_added.append(body)
+            self.block_added.append(s[1:])
             self.new_line += 1
         else:
-            # context line
             self._flush_block()
             self.old_line += 1
             self.new_line += 1
@@ -326,15 +404,22 @@ class DiffParser:
     def _flush_block(self):
         if not self.block_removed and not self.block_added:
             return
-        self.changes.append(
-            _make_change(
-                self.cur_file or "",
-                self.block_removed,
-                self.block_added,
-                self.block_old_start,
-                self.block_new_start,
-            )
+        change = _make_change(
+            self.cur_file or "",
+            self.block_removed,
+            self.block_added,
+            self.block_old_start,
+            self.block_new_start,
+            commit_ctx=(
+                self.current_commit
+                if self.forward_assignment and self.current_commit
+                else None
+            ),
         )
+        self.changes.append(change)
+        if not self.forward_assignment:
+            # Keep for potential commit header appearing later.
+            self.pending_changes.append(change)
         self.block_removed.clear()
         self.block_added.clear()
         self.block_old_start = None
@@ -350,7 +435,116 @@ class DiffParser:
 
 
 def parse_unified_diff(diff_text: str) -> List[Change]:
-    return DiffParser(diff_text).parse()
+    return DiffWithCommitParser(diff_text).parse()
+
+
+_COMMIT_LINE = re.compile(r"^\s*commit\s+([0-9a-fA-F]{7,40})\s*$")
+_AUTHOR_LINE = re.compile(r"^\s*Author:\s*(.+)$")
+_DATE_LINE = re.compile(r"^\s*Date:\s*(.+)$")
+
+
+def parse_commit_metadata(diff_text: str) -> List[Dict[str, Any]]:
+    """Extract commit metadata (hash/author/date/message) from a git log -p style text.
+
+    Logic:
+    - Detect 'commit <hash>' lines.
+    - Capture Author/Date.
+    - Commit message lines are those starting with exactly 4 spaces (git default) after a blank separator.
+    - Stop message collection at first line beginning with 'diff --git ' OR next 'commit '.
+    - Ignore diff content so message doesn't absorb patch text.
+    - Body lines keep internal blank lines (represented as '').
+    """
+    lines = diff_text.splitlines()
+    commits: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    collecting = False
+    message_lines: List[str] = []
+    for i, raw in enumerate(lines):
+        line = raw.rstrip("\n")
+        m_commit = _COMMIT_LINE.match(line)
+        if m_commit:
+            # finalize previous
+            if current:
+                # Filter out any diff/patch lines accidentally captured
+                filtered: List[str] = []
+                for ml in message_lines:
+                    if (
+                        ml.startswith("diff --git ")
+                        or ml.startswith("index ")
+                        or ml.startswith("@@ ")
+                        or ml.startswith("--- ")
+                        or ml.startswith("+++ ")
+                    ):
+                        break
+                    if ml.startswith("+") or ml.startswith("-"):
+                        break
+                    filtered.append(ml)
+                current["message"] = "\n".join(filtered).strip()
+                commits.append(current)
+            current = {
+                "hash": m_commit.group(1),
+                "author": None,
+                "date": None,
+                "message": "",
+            }
+            collecting = False
+            message_lines = []
+            continue
+        if not current:
+            continue
+        # Author / Date
+        m_author = _AUTHOR_LINE.match(line)
+        if m_author:
+            current["author"] = m_author.group(1).strip()
+            continue
+        m_date = _DATE_LINE.match(line)
+        if m_date:
+            current["date"] = m_date.group(1).strip()
+            continue
+        # End conditions for message collection
+        if line.startswith("diff --git "):
+            if collecting:
+                collecting = False
+            continue
+        if _COMMIT_LINE.match(line):  # safety (should have matched earlier)
+            if collecting:
+                collecting = False
+            continue
+        # Decide when to start collecting: a blank line followed by a 4-space indented line.
+        if not collecting:
+            if (
+                line.strip() == ""
+                and i + 1 < len(lines)
+                and lines[i + 1].startswith("    ")
+            ):
+                collecting = True
+            continue
+        # We are collecting: accept only lines starting with 4 spaces OR blank lines.
+        if line.startswith("    "):
+            message_lines.append(line[4:])
+        elif line.strip() == "":
+            message_lines.append("")
+        else:
+            # Non-indented non-blank line ends message section.
+            collecting = False
+    # finalize last
+    if current:
+        filtered = []
+        for ml in message_lines:
+            if (
+                ml.startswith("diff --git ")
+                or ml.startswith("index ")
+                or ml.startswith("@@ ")
+                or ml.startswith("--- ")
+                or ml.startswith("+++ ")
+            ):
+                break
+            if ml.startswith("+") or ml.startswith("-"):
+                break
+            filtered.append(ml)
+        current["message"] = "\n".join(filtered).strip()
+        commits.append(current)
+    return commits
 
 
 def strip_trailing_comma(s: str) -> str:
@@ -748,6 +942,8 @@ def process_changes(
     suppress_deleted_files: bool = True,
     add_context: bool = True,
 ) -> List[Change]:
+    # Remove exact duplicate change blocks (same file, lines, content, property)
+    changes = deduplicate_repeated_changes(changes)
     changes = remove_trivial_structure_lines(changes)
     changes = annotate_plist_properties(changes, repo_path=repo_path)
     if suppress_deleted_files:
@@ -758,9 +954,324 @@ def process_changes(
     return changes
 
 
+def deduplicate_repeated_changes(changes: List[Change]) -> List[Change]:
+    """Collapse identical changes that appear multiple times for the same file.
+
+    Two changes are considered identical if all of these match:
+      - file
+      - change_type
+      - context
+      - property
+      - line_old / line_new (may be None)
+      - old_lines content sequence
+      - new_lines content sequence
+      - (for non-block contexts) old/new scalar values
+    """
+    seen = set()
+    deduped: List[Change] = []
+    for ch in changes:
+        key = (
+            ch.file,
+            ch.change_type,
+            ch.context,
+            ch.property,
+            ch.line_old,
+            ch.line_new,
+            tuple(ch.old_lines),
+            tuple(ch.new_lines),
+            ch.old if ch.context != ChangeContext.BLOCK.value else None,
+            ch.new if ch.context != ChangeContext.BLOCK.value else None,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ch)
+    return deduped
+
+
+def enrich_missing_commit_info(changes: List[Change], repo_path: str) -> List[Change]:
+    """Populate commit_* fields for changes that lack them by querying last commit per file.
+
+    Uses `git log -n 1 -- <file>`; if a file has no history (new, unstaged), leaves fields None.
+    """
+    if not repo_path:
+        return changes
+    unique_files = {c.file for c in changes if c.file}
+    commit_cache: Dict[str, Dict[str, Optional[str]]] = {}
+    for fp in unique_files:
+        if fp in commit_cache:
+            continue
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    repo_path,
+                    "log",
+                    "-n",
+                    "1",
+                    "--pretty=format:%H%n%an <%ae>%n%ad%n%s%n%b",
+                    "--",
+                    fp,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.stdout.strip():
+                lines = result.stdout.splitlines()
+                commit_cache[fp] = {
+                    "hash": lines[0] if len(lines) > 0 else None,
+                    "author": lines[1] if len(lines) > 1 else None,
+                    "date": lines[2] if len(lines) > 2 else None,
+                    "message": "\n".join(lines[3:]).strip() if len(lines) > 3 else None,
+                }
+            else:
+                commit_cache[fp] = {}
+        except Exception:
+            commit_cache[fp] = {}
+    for ch in changes:
+        if not ch.commit_hash and ch.file in commit_cache:
+            meta = commit_cache[ch.file]
+            ch.commit_hash = meta.get("hash")
+            ch.commit_author = meta.get("author")
+            ch.commit_date = meta.get("date")
+            ch.commit_message = meta.get("message")
+    return changes
+
+
+def override_commit_messages_subject_only(
+    changes: List[Change], repo_path: Optional[str]
+) -> List[Change]:
+    """Replace any existing commit_message with the commit subject only (first line).
+
+    This queries git for each unique commit_hash. If repo_path is not a git repo
+    or the hash cannot be resolved, leaves the existing message unchanged.
+    """
+    if not changes:
+        return changes
+    if not repo_path:
+        repo_path = "."
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        return changes
+    unique_hashes = {c.commit_hash for c in changes if c.commit_hash}
+    subject_cache: Dict[str, str] = {}
+    for h in unique_hashes:
+        if h in subject_cache:
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "show", "-s", "--format=%s", h],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            subject_cache[h] = (
+                result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+            )
+        except Exception:
+            subject_cache[h] = ""
+    for ch in changes:
+        if (
+            ch.commit_hash
+            and ch.commit_hash in subject_cache
+            and subject_cache[ch.commit_hash]
+        ):
+            ch.commit_message = subject_cache[ch.commit_hash]
+    return changes
+
+
+def trim_commit_messages_to_subject(changes: List[Change]) -> List[Change]:
+    """Ensure commit_message is only the first line (subject)."""
+    for c in changes:
+        if c.commit_message:
+            first = c.commit_message.splitlines()[0].strip()
+            c.commit_message = first
+    return changes
+
+
+def consolidate_file_commit_attribution(changes: List[Change]) -> List[Change]:
+    """Heuristic (two-pass style) commit attribution fix."""
+    by_file: Dict[str, List[Change]] = {}
+    for ch in changes:
+        by_file.setdefault(ch.file, []).append(ch)
+    for file, file_changes in by_file.items():
+        # Find last change with a commit hash
+        last_with_commit = None
+        for fc in reversed(file_changes):
+            if fc.commit_hash:
+                last_with_commit = fc
+                break
+        if not last_with_commit:
+            continue
+        target_hash = last_with_commit.commit_hash
+        target_author = last_with_commit.commit_author
+        target_date = last_with_commit.commit_date
+        target_message = last_with_commit.commit_message
+        # If more than one distinct commit present OR some changes lack hash, unify.
+        distinct_hashes = {c.commit_hash for c in file_changes if c.commit_hash}
+        if len(distinct_hashes) <= 1 and all(c.commit_hash for c in file_changes):
+            continue  # nothing to unify
+        for fc in file_changes:
+            if fc.commit_hash != target_hash:
+                fc.commit_hash = target_hash
+                fc.commit_author = target_author
+                fc.commit_date = target_date
+                fc.commit_message = target_message
+            if not fc.commit_hash:
+                fc.commit_hash = target_hash
+                fc.commit_author = target_author
+                fc.commit_date = target_date
+                fc.commit_message = target_message
+    return changes
+
+
+def inject_commit_messages(
+    changes: List[Change], commits: Optional[List[Dict[str, Any]]]
+) -> List[Change]:
+    """Populate commit_message (and missing hash/author/date if feasible) from parsed commit metadata.
+
+    Behavior:
+    - Build a map hash -> {author,date,message} from commits list.
+    - For each change with commit_hash but empty commit_message, fill message (full body) then leave trimming to later.
+    - If a change has no commit_hash and there is exactly one commit parsed, assign that commit wholesale.
+    - Otherwise leave missing commit hashes untouched (ambiguous multi-commit scenario).
+    """
+    if not commits:
+        return changes
+    commit_map: Dict[str, Dict[str, Optional[str]]] = {}
+    for c in commits:
+        h = c.get("hash")
+        if not h:
+            continue
+        commit_map[h] = {
+            "author": c.get("author"),
+            "date": c.get("date"),
+            "message": c.get("message"),
+        }
+    single_commit = commits[0] if len(commits) == 1 else None
+    for ch in changes:
+        if ch.commit_hash and not ch.commit_message:
+            meta = commit_map.get(ch.commit_hash)
+            if meta and meta.get("message"):
+                ch.commit_message = meta.get("message")
+            # Backfill author/date if still missing
+            if meta:
+                if not ch.commit_author and meta.get("author"):
+                    ch.commit_author = meta.get("author")
+                if not ch.commit_date and meta.get("date"):
+                    ch.commit_date = meta.get("date")
+        elif not ch.commit_hash and single_commit:
+            # Assign the only commit present (fallback heuristic)
+            ch.commit_hash = single_commit.get("hash")
+            ch.commit_author = single_commit.get("author")
+            ch.commit_date = single_commit.get("date")
+            ch.commit_message = single_commit.get("message")
+    return changes
+
+
+def assign_missing_commits_by_proximity(
+    diff_text: str, changes: List[Change], commits: Optional[List[Dict[str, Any]]]
+) -> List[Change]:
+    """Assign commit metadata to changes lacking commit_hash by proximity in the raw diff text.
+
+    Strategy:
+    - Build an ordered list of (line_index, commit_hash) for commit headers.
+    - For each change without commit_hash, locate the first occurrence of its 'diff --git' line.
+      Then find the next commit header that appears AFTER that diff line (indicating commit-after-diff ordering).
+    - If found, assign that commit's hash/author/date/message (full message, trimming later).
+
+    This complements the streaming parser which handles commit-before-diff ordering; this function
+    cleans up remaining commit-after-diff cases that slipped through (e.g., when diff sections precede
+    their commit header, but buffering did not capture due to complex aggregation or interleaving).
+    """
+    if not commits:
+        return changes
+    lines = diff_text.splitlines()
+    commit_positions: List[tuple] = []
+    commit_meta_map: Dict[str, Dict[str, Optional[str]]] = {}
+    for i, raw in enumerate(lines):
+        m = _COMMIT_LINE.match(raw)
+        if m:
+            h = m.group(1)
+            commit_positions.append((i, h))
+    for c in commits:
+        h = c.get("hash")
+        if h:
+            commit_meta_map[h] = {
+                "author": c.get("author"),
+                "date": c.get("date"),
+                "message": c.get("message"),
+            }
+    if not commit_positions:
+        return changes
+    # Precompile diff line patterns per file for efficiency
+    file_first_line_index: Dict[str, int] = {}
+    for idx, raw in enumerate(lines):
+        m = DIFF_GIT.match(raw)
+        if m:
+            b_path = m.group(2).strip()
+            if b_path not in file_first_line_index:
+                file_first_line_index[b_path] = idx
+    for ch in changes:
+        if ch.commit_hash or not ch.file:
+            continue
+        diff_idx = file_first_line_index.get(ch.file)
+        if diff_idx is None:
+            continue
+        # Find first commit header after diff_idx
+        chosen_hash = None
+        for c_line_idx, h in commit_positions:
+            if c_line_idx > diff_idx:
+                chosen_hash = h
+                break
+        if not chosen_hash:
+            continue
+        meta = commit_meta_map.get(chosen_hash, {})
+        ch.commit_hash = chosen_hash
+        ch.commit_author = meta.get("author")
+        ch.commit_date = meta.get("date")
+        ch.commit_message = meta.get("message")
+    return changes
+
+
 if __name__ == "__main__":
     repo = args.repo_path
-    if repo:
+    commits_for_embedding: Optional[List[Dict[str, Any]]] = None
+    if args.diff_file:
+        if args.diff_file == "-":
+            patch = sys.stdin.read()
+        else:
+            with open(args.diff_file, "r", encoding="utf-8") as df:
+                patch = df.read()
+        all_changes = parse_unified_diff(patch)
+        all_changes = process_changes(
+            all_changes,
+            repo_path=".",  # not needed for plist context; use cwd
+            suppress_deleted_files=args.suppress_deleted_files,
+            add_context=False,
+        )
+        # Enrich commit info if not present
+        all_changes = enrich_missing_commit_info(all_changes, repo_path=".")
+        commits_for_embedding = parse_commit_metadata(patch)
+        # Assign missing commit hashes for commit-after-diff ordering using proximity scan.
+        all_changes = assign_missing_commits_by_proximity(
+            patch, all_changes, commits_for_embedding
+        )
+        # Two-pass heuristic consolidation (Option A): unify per-file commits to last commit seen for that file.
+        all_changes = consolidate_file_commit_attribution(all_changes)
+        # After consolidation, fill any remaining missing commit info again (in case we populated hashes only)
+        all_changes = enrich_missing_commit_info(all_changes, repo_path=".")
+        # Inject commit messages (and fallback hash if only one commit) before subject trim.
+        all_changes = inject_commit_messages(all_changes, commits_for_embedding)
+        # Force subject-only commit messages
+        all_changes = override_commit_messages_subject_only(all_changes, repo_path=".")
+        all_changes = trim_commit_messages_to_subject(all_changes)
+        print_changes(all_changes)
+        if args.commit_meta_json:
+            with open(args.commit_meta_json, "w", encoding="utf-8") as cmf:
+                json.dump(commits_for_embedding, cmf, indent=2)
+    elif repo:
         files = list_changed_files(repo)
         to_diff = [rec["new"] for rec in files if rec["status"] in ("M", "A", "R")]
         all_changes: List[Change] = []
@@ -775,6 +1286,9 @@ if __name__ == "__main__":
             suppress_deleted_files=args.suppress_deleted_files,
             add_context=False,
         )
+        all_changes = enrich_missing_commit_info(all_changes, repo_path=repo)
+        all_changes = override_commit_messages_subject_only(all_changes, repo_path=repo)
+        all_changes = trim_commit_messages_to_subject(all_changes)
         print_changes(all_changes)
     elif args.compare_file_1 and args.compare_file_2:
         patch = diff_files(
@@ -787,10 +1301,13 @@ if __name__ == "__main__":
             suppress_deleted_files=args.suppress_deleted_files,
             add_context=False,
         )
+        all_changes = enrich_missing_commit_info(all_changes, repo_path=".")
+        all_changes = override_commit_messages_subject_only(all_changes, repo_path=".")
+        all_changes = trim_commit_messages_to_subject(all_changes)
         print_changes(all_changes)
     else:
         print(
-            "Please provide either --repo_path or both --compare-file-1 and --compare-file-2"
+            "Please provide either --repo_path, --diff-file, or both --compare-file-1 and --compare-file-2"
         )
         exit(1)
 
