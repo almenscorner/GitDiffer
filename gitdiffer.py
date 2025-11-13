@@ -1268,9 +1268,6 @@ if __name__ == "__main__":
         all_changes = override_commit_messages_subject_only(all_changes, repo_path=".")
         all_changes = trim_commit_messages_to_subject(all_changes)
         print_changes(all_changes)
-        if args.commit_meta_json:
-            with open(args.commit_meta_json, "w", encoding="utf-8") as cmf:
-                json.dump(commits_for_embedding, cmf, indent=2)
     elif repo:
         files = list_changed_files(repo)
         to_diff = [rec["new"] for rec in files if rec["status"] in ("M", "A", "R")]
